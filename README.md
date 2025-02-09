@@ -2,7 +2,7 @@
 
 A command-line tool for predicting image classes using a pre-trained deep learning model in PyTorch. This Predict flower name from an image with predict.py along with the probability of that name, i.e. it returns the flower name and class probability
 
-## 🚀 Features
+## 🎯 Features
 - Loads a pre-trained model from a checkpoint.
 - Processes an image and predicts its class.
 - Supports **Top-K predictions**.
@@ -13,8 +13,8 @@ A command-line tool for predicting image classes using a pre-trained deep learni
 ## 📦 Installation
 1. **Clone the repository**  
    ```bash
-   git clone https://github.com/your-username/image-classifier-cli.git
-   cd image-classifier-cli
+   git clone https://github.com/your-username/udacity-image-classifier.git
+   cd udacity-image-classifier
    ```
 2. **Create a virtual environment (optional but recommended)**  
    ```bash
@@ -35,7 +35,7 @@ Make sure you have a trained model saved as `checkpoint.pth`. If you haven't sav
 ```python
 import torch
 
-model.class_to_idx = image_datasets['train'].class_to_idx
+model.class_to_idx = train_datasets.class_to_idx
 
 torch.save({
     'structure': 'alexnet',
