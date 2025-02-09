@@ -1,105 +1,71 @@
 import argparse
-import json
-import PIL
 import torch
+from torchvision import transforms
+from PIL import Image
 import numpy as np
-from math import ceil
-from train import check_gpu
-from torchvision import models
 
-def arg_parser():
-    parser = argparse.ArgumentParser(description="predict.py")
-    parser.add_argument('--image',type=str,help='Point to impage file for prediction.',required=True)
-    parser.add_argument('--checkpoint',type=str,help='Point to checkpoint file as str.',required=True)
-    parser.add_argument('--top_k',type=int,help='Choose top K matches as int.')
-    parser.add_argument('--category_names', dest="category_names", action="store", default='cat_to_name.json')
-    parser.add_argument('--gpu', default="gpu", action="store", dest="gpu")
-
-    args = parser.parse_args()
+# Function to load the model
+def load_model(filepath):
+    checkpoint = torch.load(filepath, map_location='cpu')
+    model = torch.hub.load('pytorch/vision:v0.10.0', checkpoint['structure'], pretrained=True)
     
-    return args
-
-
-def load_checkpoint(checkpoint_path):
+    # Update classifier
+    model.classifier[1] = torch.nn.Linear(9216, checkpoint['hidden_layer1'])
+    model.classifier[4] = torch.nn.Linear(checkpoint['hidden_layer1'], len(checkpoint['class_to_idx']))
     
-    checkpoint = torch.load("checkpoint.pth")
-    
-     model = models.vgg16(pretrained=True)
-        model.name = "vgg16"
-    
-    
-    
-    for param in model.parameters(): 
-        param.requires_grad = False
-    
-    # Load from checkpoint
-    model.class_to_idx = checkpoint['class_to_idx']
-    model.classifier = checkpoint['classifier']
     model.load_state_dict(checkpoint['state_dict'])
+    model.class_to_idx = checkpoint['class_to_idx']
     
+    model.eval()
     return model
 
-def process_image(image):
-    img = PIL.Image.open(image)
-
-    original_width, original_height = img.size
+# Function to process an image
+def process_image(image_path):
+    image = Image.open(image_path)
     
-    if original_width < original_height:
-        size=[256, 256]
-    else: 
-        size=[256, 256]
-        
-    img.thumbnail(size)
-   
-    center = original_width/4, original_height/4
-    left, top, right, bottom = center[0]-(244/2), center[1]-(244/2), center[0]+(244/2), center[1]+(244/2)
-    img = img.crop((left, top, right, bottom))
-
-    numpy_img = np.array(img)/255 
-
-    # Normalize each color channel
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
-    numpy_img = (numpy_img-mean)/std
-        
-    # Set the color to the first channel
-    numpy_img = numpy_img.transpose(2, 0, 1)
+    preprocess = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
     
-    return numpy_img
+    image = preprocess(image)
+    return image.numpy()
 
+# Prediction function
+def predict(image_path, model, topk=5):
+    image = torch.from_numpy(np.expand_dims(process_image(image_path), axis=0))
     
-    # Convert to classes
-    idx_to_class = {val: key for key, val in    
-                                      model.class_to_idx.items()}
-    top_labels = [idx_to_class[lab] for lab in top_labels]
-    top_flowers = [cat_to_name[lab] for lab in top_labels]
+    with torch.no_grad():
+        log_probs = model.forward(image)
     
-    return top_probs, top_labels, top_flowers
+    probs = torch.exp(log_probs)
+    top_probs, top_labels = probs.topk(topk)
+    
+    top_probs = top_probs.numpy().flatten()
+    top_labels = top_labels.numpy().flatten()
+    
+    idx_to_class = {v: k for k, v in model.class_to_idx.items()}
+    top_classes = [idx_to_class[label] for label in top_labels]
+    
+    return top_probs, top_classes
 
-
-def print_probability(probs, flowers):
-    #Converts two lists into a dictionary to print on screen
-    for i, j in enumerate(zip(flowers, probs)):
-        print ("Rank {}:".format(i+1),
-               "Flower: {}, liklihood: {}%".format(j[1], ceil(j[0]*100)))
-
-
+# Command-line argument parsing
 def main():
+    parser = argparse.ArgumentParser(description="Image Classifier Command Line Tool")
+    parser.add_argument("image_path", type=str, help="Path to the image")
+    parser.add_argument("checkpoint", type=str, help="Path to the saved model checkpoint")
+    parser.add_argument("--top_k", type=int, default=5, help="Return top K most likely classes")
     
-    args = arg_parser()
+    args = parser.parse_args()
     
-    with open(args.category_names, 'r') as f:
-        	cat_to_name = json.load(f)
+    model = load_model(args.checkpoint)
+    probs, classes = predict(args.image_path, model, args.top_k)
+    
+    print("Predictions:")
+    for i in range(len(classes)):
+        print(f"{classes[i]}: {probs[i]*100:.2f}%")
 
-    model = load_checkpoint(args.checkpoint)
-    
-    image_tensor = process_image(args.image)
-    
-    device = check_gpu(gpu_arg=args.gpu);
-    
-    top_probs, top_labels, top_flowers = predict(image_tensor, model,device, cat_to_name,args.top_k)
-    
-    
-    print_probability(top_flowers, top_probs)
-
-if __name__ == '__main__': main()
+if __name__ == "__main__":
+    main()
